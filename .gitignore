@@ -1,0 +1,9 @@
+*.ppm
+compile_commands.json
+.cache
+objs
+*.o
+
+# executables
+mandelbrot
+myexp
