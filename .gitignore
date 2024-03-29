@@ -7,3 +7,4 @@ objs
 # executables
 mandelbrot
 myexp
+mandelbrot_ispc
