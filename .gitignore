@@ -4,9 +4,10 @@ compile_commands.json
 objs
 *.o
 
-# executables
+# PA1 executables
 mandelbrot
 myexp
 mandelbrot_ispc
 sqrt
 saxpy
+kmeans
