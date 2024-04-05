@@ -1,0 +1,9 @@
+/**/*.ppm
+
+# PA1 executables
+/**/mandelbrot
+/**/myexp
+/**/mandelbrot_ispc
+/**/sqrt
+/**/saxpy
+/**/kmeans

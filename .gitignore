@@ -1,13 +1,4 @@
-*.ppm
 compile_commands.json
 .cache
 objs
 *.o
-
-# PA1 executables
-mandelbrot
-myexp
-mandelbrot_ispc
-sqrt
-saxpy
-kmeans
