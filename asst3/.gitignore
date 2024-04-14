@@ -1,1 +1,4 @@
 /scan/cudaScan
+/render/render
+/render/*.ppm
+logs
