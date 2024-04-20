@@ -307,9 +307,10 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor,
   //  You can simply access this as ORow[i]
   std::vector<float> ORow = formatTensor(ORowTensor);
 
-  // -------- YOUR CODE HERE  -------- //
-  // We give you a template of the first three loops for your convenience
-  // loop over batch
+// -------- YOUR CODE HERE  -------- //
+// We give you a template of the first three loops for your convenience
+// loop over batch
+#pragma omp parallel for collapse(3)
   for (int b = 0; b < B; b++) {
 
     // loop over heads
@@ -321,6 +322,36 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor,
             omp_get_thread_num(), torch::indexing::None)});
         std::vector<float> ORow = formatTensor(ORowTensor);
         // YOUR CODE HERE
+
+        // QK_t = Q * K^t
+        for (int j = 0; j < N; j++) {
+          float sum = 0.0;
+          for (int k = 0; k < d; k++) {
+            sum += fourDimRead(Q, b, h, i, k, H, N, d) *
+                   fourDimRead(K, b, h, j, k, H, N, d);
+          }
+          ORow[j] = sum;
+        }
+
+        // softmax(QK_t)
+        float sum = 0.0;
+        for (int j = 0; j < N; j++) {
+          ORow[j] = std::exp(ORow[j]);
+          sum += ORow[j];
+        }
+        for (int j = 0; j < N; j++) {
+          ORow[j] /= sum;
+        }
+
+        // O = QK_t * V
+
+        for (int j = 0; j < d; j++) {
+          float sum = 0.0;
+          for (int k = 0; k < N; k++) {
+            sum += ORow[k] * fourDimRead(V, b, h, k, j, H, N, d);
+          }
+          fourDimWrite(O, b, h, i, j, H, N, d, sum);
+        }
       }
     }
   }
