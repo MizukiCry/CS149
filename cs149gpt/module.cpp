@@ -222,10 +222,13 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor,
       for (int b_i = 0; b_i < N; b_i += L) {
         for (int b_j = 0; b_j < N; b_j += L) {
           for (int b_k = 0; b_k < d; b_k += L) {
-            for (int i = b_i; i < b_i + L && i < N; i++) {
-              for (int j = b_j; j < b_j + L && j < N; j++) {
+            int m_i = std::min(N, b_i + L);
+            int m_j = std::min(N, b_j + L);
+            int m_k = std::min(d, b_k + L);
+            for (int i = b_i; i < m_i; i++) {
+              for (int j = b_j; j < m_j; j++) {
                 float sum = twoDimRead(QK_t, i, j, N);
-                for (int k = b_k; k < b_k + L && k < d; k++) {
+                for (int k = b_k; k < m_k; k++) {
                   sum += fourDimRead(Q, b, h, i, k, H, N, d) *
                          fourDimRead(K, b, h, j, k, H, N, d);
                 }
@@ -252,10 +255,13 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor,
       for (int b_i = 0; b_i < N; b_i += L) {
         for (int b_j = 0; b_j < d; b_j += L) {
           for (int b_k = 0; b_k < N; b_k += L) {
-            for (int i = b_i; i < b_i + L && i < N; i++) {
-              for (int j = b_j; j < b_j + L && j < d; j++) {
+            int m_i = std::min(N, b_i + L);
+            int m_j = std::min(d, b_j + L);
+            int m_k = std::min(N, b_k + L);
+            for (int i = b_i; i < m_i; i++) {
+              for (int j = b_j; j < m_j; j++) {
                 float sum = fourDimRead(O, b, h, i, j, H, N, d);
-                for (int k = b_k; k < b_k + L && k < N; k++) {
+                for (int k = b_k; k < m_k; k++) {
                   sum += twoDimRead(QK_t, i, k, N) *
                          fourDimRead(V, b, h, k, j, H, N, d);
                 }
