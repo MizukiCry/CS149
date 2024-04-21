@@ -16,28 +16,28 @@
 // ------------------------------------ //
 
 // Step #1: Understand Read/Write Accessors for a 2D Tensor
-inline float twoDimRead(std::vector<float> &tensor, int &x, int &y,
+inline float twoDimRead(std::vector<float> &tensor, const int &x, const int &y,
                         const int &sizeX) {
   // Note that sizeX is the size of a Row, not the number of rows
   return tensor[x * (sizeX) + y];
 }
 
-inline void twoDimWrite(std::vector<float> &tensor, int &x, int &y,
-                        const int &sizeX, float &val) {
+inline void twoDimWrite(std::vector<float> &tensor, const int &x, const int &y,
+                        const int &sizeX, const float &val) {
   tensor[x * (sizeX) + y] = val;
 }
 
 // Step #2: Implement Read/Write Accessors for a 4D Tensor
-inline float fourDimRead(std::vector<float> &tensor, int &x, int &y, int &z,
-                         int &b, const int &sizeX, const int &sizeY,
-                         const int &sizeZ) {
+inline float fourDimRead(std::vector<float> &tensor, const int &x, const int &y,
+                         const int &z, const int &b, const int &sizeX,
+                         const int &sizeY, const int &sizeZ) {
   // return tensor[((x * sizeX + y) * sizeY + z) * sizeZ + b];
   return tensor[x * sizeX * sizeY * sizeZ + y * sizeY * sizeZ + z * sizeZ + b];
 }
 
-inline void fourDimWrite(std::vector<float> &tensor, int &x, int &y, int &z,
-                         int &b, const int &sizeX, const int &sizeY,
-                         const int &sizeZ, float &val) {
+inline void fourDimWrite(std::vector<float> &tensor, const int &x, const int &y,
+                         const int &z, const int &b, const int &sizeX,
+                         const int &sizeY, const int &sizeZ, const float &val) {
   // tensor[((x * sizeX + y) * sizeY + z) * sizeZ + b] = val;
   tensor[x * sizeX * sizeY * sizeZ + y * sizeY * sizeZ + z * sizeZ + b] = val;
 }
@@ -393,19 +393,108 @@ torch::Tensor myFlashAttention(torch::Tensor QTensor, torch::Tensor KTensor,
   std::vector<float> Q = formatTensor(QTensor);
   std::vector<float> K = formatTensor(KTensor);
   std::vector<float> V = formatTensor(VTensor);
-  std::vector<float> Sij = formatTensor(SijTensor);
-  std::vector<float> Pij = formatTensor(PijTensor);
-  std::vector<float> Kj = formatTensor(KjTensor);
-  std::vector<float> Vj = formatTensor(VjTensor);
-  std::vector<float> Qi = formatTensor(QiTensor);
-  std::vector<float> Oi = formatTensor(OiTensor);
-  std::vector<float> l = formatTensor(LTensor);
-  std::vector<float> PV = formatTensor(PVTensor);
-  std::vector<float> li = formatTensor(LiTensor);
-  std::vector<float> lij = formatTensor(LijTensor);
-  std::vector<float> lnew = formatTensor(LnewTensor);
 
   // -------- YOUR CODE HERE  -------- //
+  // constexpr int M = 512 /*KB*/ * 1024 / sizeof(float);
+  // const int Bc = (M + 4 * d - 1) / (4 * d);
+  // const int Br = std::min(Bc, d);
+  const int Tr = (N + Br - 1) / Br;
+  const int Tc = (N + Bc - 1) / Bc;
+
+  for (int b = 0; b < B; b++) {
+    for (int h = 0; h < H; h++) {
+      std::vector<float> Sij = formatTensor(SijTensor);
+      std::vector<float> Pij = formatTensor(PijTensor);
+      std::vector<float> Kj = formatTensor(KjTensor);
+      std::vector<float> Vj = formatTensor(VjTensor);
+      std::vector<float> Qi = formatTensor(QiTensor);
+      std::vector<float> Oi = formatTensor(OiTensor);
+      std::vector<float> l = formatTensor(LTensor);
+      std::vector<float> PV = formatTensor(PVTensor);
+      std::vector<float> li = formatTensor(LiTensor);
+      std::vector<float> lij = formatTensor(LijTensor);
+      std::vector<float> lnew = formatTensor(LnewTensor);
+      for (int j = 0; j < Tc; j++) {
+        // Load K_j, V_j
+        const int mx_Bc = std::min(Bc, N - j * Bc);
+        for (int x = 0; x < mx_Bc; x++) {
+          for (int y = 0; y < d; y++) {
+            twoDimWrite(Kj, x, y, d,
+                        fourDimRead(K, b, h, j * Bc + x, y, H, N, d));
+            twoDimWrite(Vj, x, y, d,
+                        fourDimRead(V, b, h, j * Bc + x, y, H, N, d));
+          }
+        }
+
+        for (int i = 0; i < Tr; i++) {
+          // Load Q_i, O_i, l_i
+          const int mx_Br = std::min(Br, N - i * Br);
+          for (int x = 0; x < mx_Br; x++) {
+            for (int y = 0; y < d; y++) {
+              twoDimWrite(Qi, x, y, d,
+                          fourDimRead(Q, b, h, i * Br + x, y, H, N, d));
+              twoDimWrite(Oi, x, y, d,
+                          fourDimRead(O, b, h, i * Br + x, y, H, N, d));
+              li[x] = l[i * Br + x];
+            }
+          }
+
+          // S_ij = Q_i * K_j^t
+          for (int x = 0; x < mx_Br; x++) {
+            for (int y = 0; y < mx_Bc; y++) {
+              float sum = 0.0;
+              for (int z = 0; z < d; z++) {
+                sum += twoDimRead(Qi, x, z, d) * twoDimRead(Kj, y, z, d);
+              }
+              twoDimWrite(Sij, x, y, Bc, sum);
+            }
+          }
+
+          // P_ij = exp(S_ij)
+          for (int x = 0; x < mx_Br; x++) {
+            for (int y = 0; y < mx_Bc; y++) {
+              twoDimWrite(Pij, x, y, Bc, std::exp(twoDimRead(Sij, x, y, Bc)));
+            }
+          }
+
+          // l_ij = rowsum(P_ij)
+          for (int x = 0; x < mx_Br; x++) {
+            float sum = 0.0;
+            for (int y = 0; y < mx_Bc; y++) {
+              sum += twoDimRead(Pij, x, y, Bc);
+            }
+            lij[x] = sum;
+          }
+
+          // l_new = l_i + l_ij
+          for (int x = 0; x < mx_Br; x++) {
+            lnew[x] = li[x] + lij[x];
+          }
+
+          // O_i = (l_i * O_i + P_ij * V_j) / l_new
+          for (int x = 0; x < mx_Br; x++) {
+            for (int y = 0; y < d; y++) {
+              float sum = 0.0;
+              for (int z = 0; z < mx_Bc; z++) {
+                sum += twoDimRead(Pij, x, z, Bc) * twoDimRead(Vj, z, y, d);
+              }
+              twoDimWrite(Oi, x, y, d,
+                          (li[x] * twoDimRead(Oi, x, y, d) + sum) / lnew[x]);
+            }
+          }
+
+          // Write O_i back to O, l_new back to l
+          for (int x = 0; x < mx_Br; x++) {
+            for (int y = 0; y < d; y++) {
+              fourDimWrite(O, b, h, i * Br + x, y, H, N, d,
+                           twoDimRead(Oi, x, y, d));
+            }
+            l[i * Br + x] = lnew[x];
+          }
+        }
+      }
+    }
+  }
 
   // DO NOT EDIT THIS RETURN STATEMENT //
   // It formats your C++ Vector O back into a Tensor of Shape (B, H, N, d) and
