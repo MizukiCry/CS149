@@ -31,7 +31,7 @@ void top_down_step(Graph g, vertex_set *frontier, vertex_set *new_frontier,
     Vertex *buffer = new Vertex[g->num_nodes];
     int buffer_size = 0;
 
-#pragma omp for schedule(dynamic, 100)
+#pragma omp for schedule(dynamic, 200)
     for (int i = 0; i < frontier->count; i++) {
       const int node = frontier->vertices[i];
       for (const Vertex *x = outgoing_begin(g, node),
@@ -106,7 +106,7 @@ void bottom_up_step(Graph g, vertex_set *frontier, vertex_set *new_frontier,
     Vertex *buffer = new Vertex[g->num_nodes];
     int buffer_size = 0;
 
-#pragma omp for schedule(dynamic, 100)
+#pragma omp for schedule(dynamic, 2000)
     for (int i = 0; i < g->num_nodes; ++i) {
       if (distances[i] != NOT_VISITED_MARKER)
         continue;
@@ -155,8 +155,35 @@ void bfs_bottom_up(Graph graph, solution *sol) {
 }
 
 void bfs_hybrid(Graph graph, solution *sol) {
-  // CS149 students:
-  //
-  // You will need to implement the "hybrid" BFS here as
-  // described in the handout.
+  vertex_set list1;
+  vertex_set list2;
+  vertex_set_init(&list1, graph->num_nodes);
+  vertex_set_init(&list2, graph->num_nodes);
+
+  vertex_set *frontier = &list1;
+  vertex_set *new_frontier = &list2;
+
+  for (int i = 0; i < graph->num_nodes; i++)
+    sol->distances[i] = NOT_VISITED_MARKER;
+
+  frontier->vertices[frontier->count++] = ROOT_NODE_ID;
+  sol->distances[ROOT_NODE_ID] = 0;
+
+  // int remaining_nodes = graph->num_nodes - 1;
+
+  while (frontier->count != 0) {
+    vertex_set_clear(new_frontier);
+
+    if (frontier->count < graph->num_nodes * 0.05) {
+      top_down_step(graph, frontier, new_frontier, sol->distances);
+    } else {
+      bottom_up_step(graph, frontier, new_frontier, sol->distances);
+    }
+
+    // remaining_nodes -= frontier->count;
+
+    vertex_set *tmp = frontier;
+    frontier = new_frontier;
+    new_frontier = tmp;
+  }
 }
